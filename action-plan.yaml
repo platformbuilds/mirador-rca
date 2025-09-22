@@ -1,0 +1,58 @@
+work_breakdown:
+  phase_1_foundation:
+    duration_days: 10
+    deliverables:
+      - grpc_service_scaffold
+      - healthcheck
+      - metrics/logs/traces clients
+      - investigate_incident(v1): anomalies+ranking
+      - weaviate read NN hooks (prior incidents)
+    tasks:
+      - proto authoring & codegen
+      - API gateway with validation
+      - metrics extractor (STL+ESD)
+      - logs extractor (spike + signature)
+      - traces graph loader + simple outliers
+      - ranker v1 + result mapping to CorrelationResult
+    exit_criteria:
+      - mirador-core /rca/investigate returns v1 result
+      - p95 ≤ 4s on 15m window (dev data)
+  phase_2_patterns_history:
+    duration_days: 8
+    deliverables:
+      - list_correlations
+      - get_patterns
+      - pattern_miner(v1) offline job
+      - recommender(v1) rules
+    tasks:
+      - weaviate classes + persistence
+      - NN search + filters
+      - FP-growth + prefix-span miners
+    exit_criteria:
+      - patterns show prevalence & lastSeen
+      - correlations feed filterable by service/time
+  phase_3_causality_quality:
+    duration_days: 10
+    deliverables:
+      - causality_validation
+      - confidence calibration
+      - feedback endpoint + storage
+    tasks:
+      - granger-lite module
+      - trace timing precedence checks
+      - feedback storage in weaviate
+    exit_criteria:
+      - measurable lift in precision@1 on test incidents
+  phase_4_ops_scaling:
+    duration_days: 6
+    deliverables:
+      - valkey caching
+      - k8s helm chart + HPA
+      - alerts + dashboards
+    tasks:
+      - cache hot NN lookups & schema reads
+      - helm values for endpoints/secrets
+      - SLOs + alert rules
+    exit_criteria:
+      - p95 targets met under medium load
+      - zero-downtime rolling deploy validated
