@@ -53,21 +53,23 @@ work_breakdown:
   phase_3_causality_quality:
     duration_days: 10
     deliverables:
-      - causality_validation
-      - confidence calibration
-      - feedback endpoint + storage
+      - done causality_validation
+      - done confidence calibration
+      - done feedback endpoint + storage
     tasks:
-      - granger-lite module
-      - trace timing precedence checks
-      - feedback storage in weaviate
+      - done granger-lite module
+      - done trace timing precedence checks
+      - done feedback storage in weaviate
     exit_criteria:
-      - measurable lift in precision@1 on test incidents
+      - done measurable lift in precision@1 on test incidents
   phase_4_ops_scaling:
     duration_days: 6
     deliverables:
-      - valkey caching
+      - valkey caching (external cluster)
       - k8s helm chart + HPA
       - alerts + dashboards
+      - Makefile similar to https://github.com/platformbuilds/mirador-core/blob/main/Makefile
+      - github CI for govulncheck and code quality checks similar to https://github.com/platformbuilds/mirador-core/blob/main/.github
     tasks:
       - cache hot NN lookups & schema reads
       - helm values for endpoints/secrets

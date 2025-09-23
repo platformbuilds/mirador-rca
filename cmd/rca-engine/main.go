@@ -52,12 +52,14 @@ func main() {
 		logger.Error("failed to load rule pack", slog.Any("error", err))
 		os.Exit(1)
 	}
+	causalityEngine := engine.NewCausalityEngine(logger)
 
 	pipeline := engine.NewPipeline(
 		logger,
 		coreClient,
 		weaviateRepo,
 		ruleEngine,
+		causalityEngine,
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),

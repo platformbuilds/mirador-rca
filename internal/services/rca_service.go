@@ -21,6 +21,7 @@ import (
 type CorrelationPatternRepo interface {
 	ListCorrelations(ctx context.Context, req models.ListCorrelationsRequest) (models.ListCorrelationsResponse, error)
 	FetchPatterns(ctx context.Context, tenantID, service string) ([]models.FailurePattern, error)
+	StoreFeedback(ctx context.Context, feedback models.Feedback) error
 }
 
 // RCAService implements the gRPC RCAEngine service.
@@ -125,8 +126,21 @@ func (s *RCAService) SubmitFeedback(ctx context.Context, req *rcav1.FeedbackRequ
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request cannot be nil")
 	}
-	s.logger.Debug("SubmitFeedback called", slog.String("tenant_id", req.GetTenantId()), slog.String("correlation_id", req.GetCorrelationId()))
-	return nil, status.Errorf(codes.Unimplemented, "SubmitFeedback not yet implemented")
+	if s.historyRepo == nil {
+		return nil, status.Error(codes.FailedPrecondition, "feedback repository not configured")
+	}
+
+	feedback, err := api.FromProtoFeedbackRequest(req)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	if err := s.historyRepo.StoreFeedback(ctx, feedback); err != nil {
+		s.logger.Error("store feedback failed", slog.Any("error", err))
+		return nil, status.Error(codes.Internal, "failed to persist feedback")
+	}
+
+	return &rcav1.FeedbackAck{CorrelationId: feedback.CorrelationID, Accepted: true}, nil
 }
 
 // HealthCheck returns the current health state.

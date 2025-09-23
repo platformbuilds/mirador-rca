@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/miradorstack/mirador-rca/internal/extractors"
@@ -35,6 +36,7 @@ type Pipeline struct {
 	tracesExtractor  *extractors.TracesExtractor
 	weaviate         WeaviateClient
 	rulesEngine      *RuleEngine
+	causalityEngine  *CausalityEngine
 }
 
 // NewPipeline constructs a new investigation pipeline.
@@ -43,6 +45,7 @@ func NewPipeline(
 	coreClient CoreClient,
 	weaviate WeaviateClient,
 	rulesEngine *RuleEngine,
+	causalityEngine *CausalityEngine,
 	metricsExtractor *extractors.MetricExtractor,
 	logsExtractor *extractors.LogsExtractor,
 	tracesExtractor *extractors.TracesExtractor,
@@ -68,6 +71,7 @@ func NewPipeline(
 		tracesExtractor:  tracesExtractor,
 		weaviate:         weaviate,
 		rulesEngine:      rulesEngine,
+		causalityEngine:  causalityEngine,
 	}
 }
 
@@ -113,16 +117,43 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 	confidence := p.computeConfidence(metricAnomalies, logAnomalies, traceAnomalies)
 	rootCause := deriveRootCause(service, anchors)
 
+	causalityScore := 0.0
+	var causalityResult CausalityResult
+	if p.causalityEngine != nil {
+		causalityResult = p.causalityEngine.Evaluate(service, timeline, serviceGraph)
+		causalityScore = causalityResult.Score
+		if len(causalityResult.Notes) > 0 {
+			for _, note := range causalityResult.Notes {
+				p.logger.Debug("causality note", slog.String("note", note))
+			}
+		}
+	}
+
 	recommendations := p.fetchRecommendations(ctx, req, anchors, timeline)
 	affected := uniqueStrings(append([]string{service}, req.AffectedServices...))
 	affected = uniqueStrings(append(affected, neighborServices(serviceGraph, service)...))
+
+	if causalityResult.SuggestedService != "" && !strings.EqualFold(causalityResult.SuggestedService, service) {
+		affected = uniqueStrings(append(affected, causalityResult.SuggestedService))
+		rootCause = fmt.Sprintf("%s: upstream influence on %s", causalityResult.SuggestedService, service)
+		suggestedEvent := models.TimelineEvent{
+			Time:         rootEventTime(causalityResult.SuggestedService, timeline).Add(-500 * time.Millisecond),
+			Event:        fmt.Sprintf("Causality: %s precedes %s", causalityResult.SuggestedService, service),
+			Service:      causalityResult.SuggestedService,
+			Severity:     models.SeverityMedium,
+			AnomalyScore: 0,
+			DataSource:   models.DataTypeTraces,
+		}
+		timeline = append(timeline, suggestedEvent)
+	}
+
 	timeline = p.appendTopologyEvents(timeline, service, serviceGraph)
 
 	result := models.CorrelationResult{
 		CorrelationID:    fmt.Sprintf("corr-%d", time.Now().UnixNano()),
 		IncidentID:       req.IncidentID,
 		RootCause:        rootCause,
-		Confidence:       confidence,
+		Confidence:       calibrateConfidence(confidence, causalityScore),
 		AffectedServices: affected,
 		Recommendations:  recommendations,
 		RedAnchors:       anchors,
@@ -382,7 +413,7 @@ func (p *Pipeline) appendTopologyEvents(timeline []models.TimelineEvent, service
 	}
 	related := make([]repo.ServiceGraphEdge, 0)
 	for _, edge := range edges {
-		if edge.Source == service {
+		if edge.Source == service || edge.Target == service {
 			related = append(related, edge)
 		}
 	}
@@ -396,17 +427,29 @@ func (p *Pipeline) appendTopologyEvents(timeline []models.TimelineEvent, service
 	if len(related) < limit {
 		limit = len(related)
 	}
+	rootTime := rootEventTime(service, timeline)
+	if rootTime.IsZero() {
+		rootTime = time.Now().UTC()
+	}
 	for i := 0; i < limit; i++ {
+		edge := related[i]
 		event := models.TimelineEvent{
-			Time:         time.Now().UTC(),
-			Event:        fmt.Sprintf("Service graph: %s -> %s", related[i].Source, related[i].Target),
-			Service:      related[i].Target,
+			Time:         rootTime,
 			Severity:     models.SeverityLow,
 			AnomalyScore: 0,
 			DataSource:   models.DataTypeTraces,
 		}
-		if related[i].ErrorRate > 0 {
-			event.Event = fmt.Sprintf("Service graph: %s -> %s (error rate %.2f%%)", related[i].Source, related[i].Target, related[i].ErrorRate)
+		if edge.Target == service {
+			event.Service = edge.Source
+			event.Event = fmt.Sprintf("Service graph: upstream %s -> %s", edge.Source, edge.Target)
+			event.Time = rootTime.Add(-500 * time.Millisecond)
+		} else {
+			event.Service = edge.Target
+			event.Event = fmt.Sprintf("Service graph: %s -> %s", edge.Source, edge.Target)
+			event.Time = rootTime.Add(500 * time.Millisecond)
+		}
+		if edge.ErrorRate > 0 {
+			event.Event += fmt.Sprintf(" (error rate %.2f%%)", edge.ErrorRate)
 		}
 		timeline = append(timeline, event)
 	}
@@ -430,4 +473,12 @@ func uniqueStrings(values []string) []string {
 		result = append(result, v)
 	}
 	return result
+}
+
+func calibrateConfidence(base, causality float64) float64 {
+	base = clamp(base, 0, 1)
+	if causality <= 0 {
+		return clamp(base*0.7, 0, 1)
+	}
+	return clamp(base*0.6+causality*0.4, 0, 1)
 }

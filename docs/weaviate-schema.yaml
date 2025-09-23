@@ -88,3 +88,18 @@ classes:
             dataType: [number]
           - name: threshold
             dataType: [number]
+
+  - name: CorrelationFeedback
+    description: Analyst feedback on correlation accuracy.
+    multi_tenant: true
+    properties:
+      - name: correlationId
+        dataType: [text]
+      - name: tenantId
+        dataType: [text]
+      - name: correct
+        dataType: [boolean]
+      - name: notes
+        dataType: [text]
+      - name: submittedAt
+        dataType: [date]

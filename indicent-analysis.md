@@ -44,12 +44,12 @@ This document describes exactly what happens when mirador-core calls `mirador-rc
 
 1. Convert anomalies into `models.RedAnchor` objects with scores and thresholds.
 2. Build a chronological timeline (`models.TimelineEvent`) from anomalies.
-3. Append service-graph context (`appendTopologyEvents`): adds events for top downstream edges (call rate/error rate summary) and expands affected services to include neighbors via `neighborServices`.
+3. Append service-graph context (`appendTopologyEvents`): adds events for top upstream/downstream edges (call rate/error rate summary) and expands affected services to include neighbors via `neighborServices`.
 
 ## 6. Scoring & Root Cause
 
 1. Confidence is computed as a weighted combination of metric/log/trace anomaly strength (`computeConfidence`).
-2. Root cause is heuristically picked as the service/selector of the top anchor (`deriveRootCause`).
+2. Root cause starts as the top anchor (`deriveRootCause`), but the causality engine can override it when an upstream dependency consistently precedes the symptoms.
 
 ## 7. Recommendations
 

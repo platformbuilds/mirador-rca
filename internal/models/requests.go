@@ -33,3 +33,12 @@ type ListCorrelationsResponse struct {
 	Correlations  []CorrelationResult
 	NextPageToken string
 }
+
+// Feedback captures user feedback for a correlation result.
+type Feedback struct {
+	TenantID      string
+	CorrelationID string
+	Correct       bool
+	Notes         string
+	SubmittedAt   time.Time
+}

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,13 +97,15 @@ func TestPipelineInvestigate(t *testing.T) {
 			logs:    logs,
 			traces:  traces,
 			graph: []repo.ServiceGraphEdge{{
-				Source:   "checkout",
-				Target:   "payments",
-				CallRate: 120,
+				Source:    "payments",
+				Target:    "checkout",
+				CallRate:  120,
+				ErrorRate: 5,
 			}},
 		},
 		fakeWeaviateClient,
 		nil,
+		NewCausalityEngine(nil),
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
@@ -144,6 +147,9 @@ func TestPipelineInvestigate(t *testing.T) {
 	if !contains(result.AffectedServices, "payments") {
 		t.Fatalf("expected topology neighbor to be included")
 	}
+	if !strings.Contains(result.RootCause, "payments") {
+		t.Fatalf("expected causality-adjusted root cause, got %s", result.RootCause)
+	}
 }
 
 func TestPipelineRulesFallback(t *testing.T) {
@@ -157,6 +163,7 @@ func TestPipelineRulesFallback(t *testing.T) {
 			Match:           RuleMatch{Service: "checkout"},
 			Recommendations: []string{"Rule Rec"},
 		}}},
+		NewCausalityEngine(nil),
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
@@ -217,6 +224,7 @@ func TestPipelineLatencyWithinTarget(t *testing.T) {
 		&fakeCoreClient{metrics: metrics, logs: logs, traces: traces},
 		&fakeWeaviate{},
 		nil,
+		NewCausalityEngine(nil),
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),

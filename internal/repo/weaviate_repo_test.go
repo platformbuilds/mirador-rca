@@ -24,6 +24,14 @@ func TestStorePatternsNoEndpoint(t *testing.T) {
 	}
 }
 
+func TestStoreFeedbackNoEndpoint(t *testing.T) {
+	r := NewWeaviateRepo("", "", time.Second)
+	fb := models.Feedback{TenantID: "tenant", CorrelationID: "corr", Correct: true, SubmittedAt: time.Now()}
+	if err := r.StoreFeedback(context.Background(), fb); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
 func TestListCorrelationsSynthetic(t *testing.T) {
 	r := NewWeaviateRepo("", "", time.Second)
 	resp, err := r.ListCorrelations(context.Background(), models.ListCorrelationsRequest{TenantID: "tenant", Service: "checkout"})

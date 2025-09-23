@@ -97,6 +97,23 @@ func toProtoSeverity(sev models.Severity) rcav1.Severity {
 	}
 }
 
+// FromProtoFeedbackRequest converts the proto feedback into a domain struct.
+func FromProtoFeedbackRequest(req *rcav1.FeedbackRequest) (models.Feedback, error) {
+	if req == nil {
+		return models.Feedback{}, fmt.Errorf("request is nil")
+	}
+	if req.GetCorrelationId() == "" {
+		return models.Feedback{}, fmt.Errorf("correlation_id is required")
+	}
+	return models.Feedback{
+		TenantID:      req.GetTenantId(),
+		CorrelationID: req.GetCorrelationId(),
+		Correct:       req.GetCorrect(),
+		Notes:         req.GetNotes(),
+		SubmittedAt:   time.Now().UTC(),
+	}, nil
+}
+
 // FromProtoListCorrelationsRequest maps the proto request into a domain request.
 func FromProtoListCorrelationsRequest(req *rcav1.ListCorrelationsRequest) (models.ListCorrelationsRequest, error) {
 	if req == nil {

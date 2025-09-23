@@ -78,6 +78,49 @@ func (r *WeaviateRepo) StorePatterns(ctx context.Context, tenantID string, patte
 	return nil
 }
 
+// StoreFeedback persists user feedback on correlations.
+func (r *WeaviateRepo) StoreFeedback(ctx context.Context, feedback models.Feedback) error {
+	if r == nil {
+		return fmt.Errorf("weaviate repo not initialised")
+	}
+	if r.endpoint == "" {
+		return nil
+	}
+
+	payload := map[string]interface{}{
+		"class":      "CorrelationFeedback",
+		"tenant":     feedback.TenantID,
+		"properties": buildFeedbackProperties(feedback),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint+"/v1/objects", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if r.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+r.apiKey)
+	}
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("store feedback failed: %s", strings.TrimSpace(string(data)))
+	}
+
+	return nil
+}
+
 // StoreCorrelation persists a correlation record for later recall.
 func (r *WeaviateRepo) StoreCorrelation(ctx context.Context, tenantID string, correlation models.CorrelationResult) error {
 	if r == nil {
@@ -601,6 +644,20 @@ func buildPatternProperties(tenantID string, pattern models.FailurePattern) map[
 		"lastSeen":        lastSeen.Format(time.RFC3339),
 		"anchorTemplates": anchors,
 		"quality":         quality,
+	}
+}
+
+func buildFeedbackProperties(feedback models.Feedback) map[string]interface{} {
+	submitted := feedback.SubmittedAt
+	if submitted.IsZero() {
+		submitted = time.Now().UTC()
+	}
+	return map[string]interface{}{
+		"tenantId":      feedback.TenantID,
+		"correlationId": feedback.CorrelationID,
+		"correct":       feedback.Correct,
+		"notes":         feedback.Notes,
+		"submittedAt":   submitted.Format(time.RFC3339),
 	}
 }
 

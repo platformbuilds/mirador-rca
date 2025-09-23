@@ -134,3 +134,20 @@ func TestToProtoPatternsResponse(t *testing.T) {
 		t.Fatalf("unexpected quality precision")
 	}
 }
+
+func TestFromProtoFeedbackRequest(t *testing.T) {
+	req := &rcav1.FeedbackRequest{
+		TenantId:      "tenant",
+		CorrelationId: "corr-1",
+		Correct:       true,
+		Notes:         "Looks good",
+	}
+
+	feedback, err := FromProtoFeedbackRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !feedback.Correct || feedback.CorrelationID != "corr-1" {
+		t.Fatalf("feedback mapping incorrect: %+v", feedback)
+	}
+}
