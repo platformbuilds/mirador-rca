@@ -28,6 +28,7 @@ scope:
     - victoria_logs: read LogsQL windows.
     - victoria_traces: read trace graph & spans (Jaeger-compatible).
     - weaviate: read/write patterns, incident synopses, correlations.
+    - otel_servicegraph: ingest service graph metrics via mirador-core proxy (servicegraphconnector).
     - valkey: optional cache + rate-limit counters.
 out_of_scope:
   - Direct persistence to VictoriaLogs (handled by mirador-core /rca/store).
@@ -46,6 +47,7 @@ architecture:
     - mirador-core >= v4.0.0
     - weaviate >= 1.24 (multi-tenancy enabled)
     - victoria_stack: metrics/logs/traces endpoints reachable
+    - otel collector servicegraphconnector deployed and scraping traces
     - valkey cluster (optional)
 
 interfaces:
@@ -158,6 +160,7 @@ configuration:
     VICTORIA_LOGS_URLS: "http://victorialogs:9428"
     VICTORIA_TRACES_URL: "http://victoriatraces:16686"
     WEAVIATE_URL: "http://weaviate:8080"
+    MIRADOR_CORE_SERVICE_GRAPH_PATH: "/api/v1/rca/service-graph"
     WEAVIATE_API_KEY: "..."
     VALKEY_NODES: "valkey-0:6379,valkey-1:6379"
     ENABLE_CAUSALITY: "true"

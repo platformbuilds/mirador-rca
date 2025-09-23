@@ -1,0 +1,24 @@
+server:
+  address: ":50051"
+  gracefulTimeout: 10s
+
+clients:
+  core:
+    baseURL: "https://mirador-core.internal"
+    metricsPath: "/api/v1/rca/metrics"
+  logsPath: "/api/v1/rca/logs"
+  tracesPath: "/api/v1/rca/traces"
+  serviceGraphPath: "/api/v1/rca/service-graph"
+  timeout: 5s
+
+weaviate:
+  endpoint: "https://weaviate.cluster.internal"
+  apiKey: "${WEAVIATE_API_KEY}"
+  timeout: 5s
+
+logging:
+  level: "info"
+  json: false
+
+rules:
+  path: "configs/rules/default.yaml"

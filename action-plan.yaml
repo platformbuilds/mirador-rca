@@ -1,36 +1,55 @@
 work_breakdown:
+  phase_0_openrca_alignment:
+    duration_days: 5
+    deliverables:
+      - done openrca_component_mapping_doc
+      - done airgap_feasibility_notes
+    tasks:
+      - done review_openrca_repo_docs
+      - done draft_integration_architecture
+      - done graph_schema_and_rules_spec
+    exit_criteria:
+      - done architecture_doc_linked_in_docs
+      - done airgap_requirements_reviewed_with_ops
   phase_1_foundation:
     duration_days: 10
     deliverables:
-      - grpc_service_scaffold
-      - healthcheck
-      - metrics/logs/traces clients
-      - investigate_incident(v1): anomalies+ranking
-      - weaviate read NN hooks (prior incidents)
+      - done grpc_service_scaffold
+      - done healthcheck
+      - done mirador-core signal clients
+      - done investigate_incident(v1): anomalies+ranking
+      - done weaviate read NN hooks (prior incidents)
     tasks:
-      - proto authoring & codegen
-      - API gateway with validation
-      - metrics extractor (STL+ESD)
-      - logs extractor (spike + signature)
-      - traces graph loader + simple outliers
-      - ranker v1 + result mapping to CorrelationResult
+      - done proto authoring & codegen
+      - done API gateway with validation
+      - done metrics extractor (STL+ESD)
+      - done logs extractor (spike + signature)
+      - done mirador-core signal API scaffolding
+      - done grpc server bootstrap in cmd/rca-engine
+      - done health endpoint wiring (+ readiness)
+      - done traces graph loader + simple outliers
+      - done service graph ingestion via mirador-core
+      - done ranker v1 + result mapping to CorrelationResult
+      - done baseline unit tests (extractors + repo mocks)
     exit_criteria:
-      - mirador-core /rca/investigate returns v1 result
-      - p95 ≤ 4s on 15m window (dev data)
+      - done mirador-core /rca/investigate returns v1 result
+      - done p95 ≤ 4s on 15m window (dev data)
+      - done external weaviate connectivity smoke-tested via service
   phase_2_patterns_history:
     duration_days: 8
     deliverables:
-      - list_correlations
-      - get_patterns
-      - pattern_miner(v1) offline job
-      - recommender(v1) rules
+      - done list_correlations
+      - done get_patterns
+      - done pattern_miner(v1) offline job
+      - done recommender(v1) rules
     tasks:
-      - weaviate classes + persistence
-      - NN search + filters
-      - FP-growth + prefix-span miners
+      - done weaviate classes + persistence (external cluster)
+      - done NN search + filters integrating mirador-core tenants
+      - done FP-growth + prefix-span miners
+      - done recommender rule pack ingestion
     exit_criteria:
-      - patterns show prevalence & lastSeen
-      - correlations feed filterable by service/time
+      - done patterns show prevalence & lastSeen
+      - done correlations feed filterable by service/time
   phase_3_causality_quality:
     duration_days: 10
     deliverables:
