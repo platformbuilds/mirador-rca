@@ -24,6 +24,16 @@ make image-offline  # docker build with network access disabled
 
 `make ci` runs the full verification plus `govulncheck` locally.
 
+## Local Development Stack
+
+Launch the Docker Compose sandbox (mock mirador-core, Valkey, Weaviate, and the service) with:
+
+```
+make localdev-up
+```
+
+Shut everything down and remove data volumes with `make localdev-down`. The stack definition lives under `deployment/localdev` and mounts your working copy so code changes are picked up instantly.
+
 Run the service locally:
 ```
 go run ./cmd/rca-engine --config configs/config.yaml
@@ -85,3 +95,7 @@ helm install mirador-rca charts/mirador-rca \
 ## CI
 
 GitHub Actions workflows in `.github/workflows` enforce linters, vet/test runs, Helm linting, and a scheduled `govulncheck` scan on pushes and pull requests to `main`.
+
+## Release process
+
+Follow `docs/release-process.md` for tagging, signing, and promoting releases. The document also references the SLO manifests under `deployment/infra/slo` and infrastructure-as-code assets used to stand up Valkey and Weaviate.

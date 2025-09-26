@@ -24,7 +24,7 @@ export GOTMPDIR ?= $(ROOT)/.gotmp
 
 COVER_PROFILE ?= coverage.out
 
-.PHONY: help fmt fmt-check lint vet test test-cover build clean tidy vendor generate proto verify ci govulncheck docker-build image image-offline image-push helm-lint helm-template helm-package
+.PHONY: help fmt fmt-check lint vet test test-cover build clean tidy vendor generate proto verify ci govulncheck docker-build image image-offline image-push helm-lint helm-template helm-package localdev-up localdev-down
 
 help:
 	@echo "Common targets:"
@@ -118,5 +118,13 @@ helm-package:
 	@command -v $(HELM) >/dev/null 2>&1 || { echo "$(HELM) not found; install Helm"; exit 1; }
 	@mkdir -p $(ROOT)/dist
 	@$(HELM) package charts/mirador-rca --destination $(ROOT)/dist
+
+LOCALDEV_COMPOSE ?= docker compose -f $(ROOT)/deployment/localdev/docker-compose.yaml
+
+localdev-up:
+	@$(LOCALDEV_COMPOSE) up --build
+
+localdev-down:
+	@$(LOCALDEV_COMPOSE) down -v
 
 *** End of File

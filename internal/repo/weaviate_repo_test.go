@@ -1,10 +1,10 @@
 package repo
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -49,19 +49,21 @@ func TestListCorrelationsSynthetic(t *testing.T) {
 
 func TestSimilarIncidentsCachesResults(t *testing.T) {
 	var hits int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		if r.URL.Path != "/v1/graphql" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"data":{"Get":{"CorrelationRecord":[{"correlationId":"c-1","incidentId":"inc-1","rootCause":"checkout","confidence":0.8,"affectedServices":["checkout"],"recommendations":["scale"],"createdAt":"2024-01-02T15:04:05Z"}]}}}`)
-	}))
-	defer server.Close()
-
 	cacheStub := newStubCache()
-	repo := NewWeaviateRepo(server.URL, "", time.Second, cacheStub, time.Minute, 0)
-	repo.httpClient = server.Client()
+	baseURL := "https://weaviate.test"
+	repo := NewWeaviateRepo(baseURL, "", time.Second, cacheStub, time.Minute, 0)
+	repo.httpClient = newTestClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		hits++
+		if req.URL.Path != "/v1/graphql" {
+			t.Fatalf("unexpected path: %s", req.URL.Path)
+		}
+		body := []byte(`{"data":{"Get":{"CorrelationRecord":[{"correlationId":"c-1","incidentId":"inc-1","rootCause":"checkout","confidence":0.8,"affectedServices":["checkout"],"recommendations":["scale"],"createdAt":"2024-01-02T15:04:05Z"}]}}}`)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	}))
 
 	ctx := context.Background()
 	first, err := repo.SimilarIncidents(ctx, "tenant-a", []string{"checkout", "payments"}, 2)
@@ -89,15 +91,20 @@ func TestSimilarIncidentsCachesResults(t *testing.T) {
 
 func TestFetchPatternsCachesResults(t *testing.T) {
 	var hits int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"data":{"Get":{"FailurePattern":[{"patternId":"p1","name":"error","description":"desc","services":["payments"],"anchorTemplates":[{"service":"payments","signalType":"logs","selector":"error","typicalLeadLag":1,"thresholds":10}],"prevalence":0.5,"lastSeen":"2024-01-02T15:04:05Z","quality":{"precision":0.7,"recall":0.4}}]}}}`)
-	}))
-	defer server.Close()
 	cacheStub := newStubCache()
-	repo := NewWeaviateRepo(server.URL, "", time.Second, cacheStub, time.Minute, time.Hour)
-	repo.httpClient = server.Client()
+	repo := NewWeaviateRepo("https://weaviate.test", "", time.Second, cacheStub, time.Minute, time.Hour)
+	repo.httpClient = newTestClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		hits++
+		if req.URL.Path != "/v1/graphql" {
+			t.Fatalf("unexpected path: %s", req.URL.Path)
+		}
+		body := []byte(`{"data":{"Get":{"FailurePattern":[{"patternId":"p1","name":"error","description":"desc","services":["payments"],"anchorTemplates":[{"service":"payments","signalType":"logs","selector":"error","typicalLeadLag":1,"thresholds":10}],"prevalence":0.5,"lastSeen":"2024-01-02T15:04:05Z","quality":{"precision":0.7,"recall":0.4}}]}}}`)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	}))
 
 	ctx := context.Background()
 	first, err := repo.FetchPatterns(ctx, "tenant-a", "payments")

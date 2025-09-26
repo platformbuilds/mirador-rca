@@ -1,36 +1,40 @@
 package repo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 )
 
 func TestFetchServiceGraphCachesResults(t *testing.T) {
 	hits := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cacheStub := newStubCache()
+	baseURL := "https://example.com"
+	client := NewMiradorCoreClient(baseURL, "/metrics", "/logs", "/traces", "/api/v1/rca/service-graph", time.Second, cacheStub, time.Minute)
+	client.httpClient = newTestClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		hits++
-		if r.URL.Path != "/api/v1/rca/service-graph" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+		if req.URL.Path != "/api/v1/rca/service-graph" {
+			t.Fatalf("unexpected path: %s", req.URL.Path)
 		}
-		w.Header().Set("Content-Type", "application/json")
 		payload := map[string]any{
 			"edges": []map[string]any{
 				{"source": "checkout", "target": "payments", "call_rate": 42.0, "error_rate": 0.01},
 			},
 		}
-		if err := json.NewEncoder(w).Encode(payload); err != nil {
-			t.Fatalf("encode response: %v", err)
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
 		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(data)),
+			Header:     make(http.Header),
+		}, nil
 	}))
-	defer srv.Close()
-
-	cacheStub := newStubCache()
-	client := NewMiradorCoreClient(srv.URL, "/metrics", "/logs", "/traces", "/api/v1/rca/service-graph", time.Second, cacheStub, time.Minute)
-	client.httpClient = srv.Client()
 
 	ctx := context.Background()
 	start := time.Unix(1_700_000_000, 0)
