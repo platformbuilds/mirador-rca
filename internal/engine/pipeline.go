@@ -39,6 +39,14 @@ type Pipeline struct {
 	causalityEngine  *CausalityEngine
 }
 
+// Signals captures the raw inputs required for analysis.
+type Signals struct {
+	ServiceGraph []repo.ServiceGraphEdge
+	Metrics      []repo.MetricPoint
+	Logs         []repo.LogEntry
+	Traces       []repo.TraceSpan
+}
+
 // NewPipeline constructs a new investigation pipeline.
 func NewPipeline(
 	logger *slog.Logger,
@@ -81,6 +89,22 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 		return models.CorrelationResult{}, fmt.Errorf("core client not configured")
 	}
 
+	service := p.DetermineService(req)
+	signals, err := p.FetchSignals(ctx, req, service)
+	if err != nil {
+		return models.CorrelationResult{}, err
+	}
+
+	result, err := p.Analyze(ctx, req, service, signals)
+	if err != nil {
+		return models.CorrelationResult{}, err
+	}
+	p.PersistResult(ctx, req.TenantID, result)
+	return result, nil
+}
+
+// DetermineService infers the primary service under investigation.
+func (p *Pipeline) DetermineService(req models.InvestigationRequest) string {
 	service := firstNonEmpty(req.AffectedServices...)
 	if service == "" && len(req.Symptoms) > 0 {
 		service = req.Symptoms[0]
@@ -88,28 +112,47 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 	if service == "" {
 		service = "unknown-service"
 	}
+	return service
+}
 
-	serviceGraph, err := p.coreClient.FetchServiceGraph(ctx, req.TenantID, req.TimeRange.Start, req.TimeRange.End)
+// FetchSignals retrieves metrics/logs/traces and the optional service graph from mirador-core.
+func (p *Pipeline) FetchSignals(ctx context.Context, req models.InvestigationRequest, service string) (Signals, error) {
+	var sig Signals
+	if p.coreClient == nil {
+		return sig, fmt.Errorf("core client not configured")
+	}
+
+	graph, err := p.coreClient.FetchServiceGraph(ctx, req.TenantID, req.TimeRange.Start, req.TimeRange.End)
 	if err != nil {
 		p.logger.Warn("service graph fetch failed", slog.Any("error", err))
+	} else {
+		sig.ServiceGraph = graph
 	}
 
 	metrics, err := p.coreClient.FetchMetricSeries(ctx, req.TenantID, service, req.TimeRange.Start, req.TimeRange.End)
 	if err != nil {
-		return models.CorrelationResult{}, fmt.Errorf("fetch metrics: %w", err)
+		return sig, fmt.Errorf("fetch metrics: %w", err)
 	}
 	logs, err := p.coreClient.FetchLogEntries(ctx, req.TenantID, service, req.TimeRange.Start, req.TimeRange.End)
 	if err != nil {
-		return models.CorrelationResult{}, fmt.Errorf("fetch logs: %w", err)
+		return sig, fmt.Errorf("fetch logs: %w", err)
 	}
 	spans, err := p.coreClient.FetchTraceSpans(ctx, req.TenantID, service, req.TimeRange.Start, req.TimeRange.End)
 	if err != nil {
-		return models.CorrelationResult{}, fmt.Errorf("fetch traces: %w", err)
+		return sig, fmt.Errorf("fetch traces: %w", err)
 	}
 
-	metricAnomalies := p.metricsExtractor.Detect(metrics, req.AnomalyThreshold)
-	logAnomalies := p.logsExtractor.Detect(logs)
-	traceAnomalies := p.tracesExtractor.Detect(spans)
+	sig.Metrics = metrics
+	sig.Logs = logs
+	sig.Traces = spans
+	return sig, nil
+}
+
+// Analyze performs anomaly detection, causality checks, and recommendation assembly.
+func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest, service string, signals Signals) (models.CorrelationResult, error) {
+	metricAnomalies := p.metricsExtractor.Detect(signals.Metrics, req.AnomalyThreshold)
+	logAnomalies := p.logsExtractor.Detect(signals.Logs)
+	traceAnomalies := p.tracesExtractor.Detect(signals.Traces)
 
 	anchors := p.buildAnchors(service, metricAnomalies, logAnomalies, traceAnomalies)
 	timeline := p.buildTimeline(metricAnomalies, logAnomalies, traceAnomalies)
@@ -120,7 +163,7 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 	causalityScore := 0.0
 	var causalityResult CausalityResult
 	if p.causalityEngine != nil {
-		causalityResult = p.causalityEngine.Evaluate(service, timeline, serviceGraph)
+		causalityResult = p.causalityEngine.Evaluate(service, timeline, signals.ServiceGraph)
 		causalityScore = causalityResult.Score
 		if len(causalityResult.Notes) > 0 {
 			for _, note := range causalityResult.Notes {
@@ -131,7 +174,7 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 
 	recommendations := p.fetchRecommendations(ctx, req, anchors, timeline)
 	affected := uniqueStrings(append([]string{service}, req.AffectedServices...))
-	affected = uniqueStrings(append(affected, neighborServices(serviceGraph, service)...))
+	affected = uniqueStrings(append(affected, neighborServices(signals.ServiceGraph, service)...))
 
 	if causalityResult.SuggestedService != "" && !strings.EqualFold(causalityResult.SuggestedService, service) {
 		affected = uniqueStrings(append(affected, causalityResult.SuggestedService))
@@ -147,7 +190,7 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 		timeline = append(timeline, suggestedEvent)
 	}
 
-	timeline = p.appendTopologyEvents(timeline, service, serviceGraph)
+	timeline = p.appendTopologyEvents(timeline, service, signals.ServiceGraph)
 
 	result := models.CorrelationResult{
 		CorrelationID:    fmt.Sprintf("corr-%d", time.Now().UnixNano()),
@@ -161,13 +204,17 @@ func (p *Pipeline) Investigate(ctx context.Context, req models.InvestigationRequ
 		CreatedAt:        time.Now().UTC(),
 	}
 
-	if p.weaviate != nil {
-		if err := p.weaviate.StoreCorrelation(ctx, req.TenantID, result); err != nil {
-			p.logger.Warn("failed to persist correlation", slog.Any("error", err))
-		}
-	}
-
 	return result, nil
+}
+
+// PersistResult stores the correlation outcome in the historical repository (best-effort).
+func (p *Pipeline) PersistResult(ctx context.Context, tenantID string, result models.CorrelationResult) {
+	if p.weaviate == nil {
+		return
+	}
+	if err := p.weaviate.StoreCorrelation(ctx, tenantID, result); err != nil {
+		p.logger.Warn("failed to persist correlation", slog.Any("error", err))
+	}
 }
 
 func (p *Pipeline) buildAnchors(service string, metricAnoms []extractors.MetricAnomaly, logAnoms []extractors.LogAnomaly, traceAnoms []extractors.TraceAnomaly) []models.RedAnchor {

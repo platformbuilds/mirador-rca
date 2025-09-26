@@ -10,6 +10,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/miradorstack/mirador-rca/internal/cache"
 )
 
 // MetricPoint represents a single metric sample returned by mirador-core.
@@ -53,10 +55,15 @@ type MiradorCoreClient struct {
 	tracesPath       string
 	serviceGraphPath string
 	httpClient       *http.Client
+	cache            cache.Provider
+	serviceGraphTTL  time.Duration
 }
 
 // NewMiradorCoreClient constructs a client targeting the configured mirador-core instance.
-func NewMiradorCoreClient(baseURL, metricsPath, logsPath, tracesPath, serviceGraphPath string, timeout time.Duration) *MiradorCoreClient {
+func NewMiradorCoreClient(baseURL, metricsPath, logsPath, tracesPath, serviceGraphPath string, timeout time.Duration, cacheProvider cache.Provider, serviceGraphTTL time.Duration) *MiradorCoreClient {
+	if cacheProvider == nil {
+		cacheProvider = cache.NoopProvider{}
+	}
 	return &MiradorCoreClient{
 		baseURL:          strings.TrimRight(baseURL, "/"),
 		metricsPath:      metricsPath,
@@ -66,6 +73,8 @@ func NewMiradorCoreClient(baseURL, metricsPath, logsPath, tracesPath, serviceGra
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
+		cache:           cacheProvider,
+		serviceGraphTTL: serviceGraphTTL,
 	}
 }
 
@@ -210,6 +219,17 @@ func (c *MiradorCoreClient) FetchServiceGraph(ctx context.Context, tenantID stri
 		return nil, fmt.Errorf("mirador-core base URL not configured")
 	}
 
+	cacheKey := ""
+	if c.serviceGraphTTL > 0 {
+		cacheKey = serviceGraphCacheKey(tenantID, start, end)
+		if data, err := c.cache.Get(ctx, cacheKey); err == nil {
+			var cached []ServiceGraphEdge
+			if err := json.Unmarshal(data, &cached); err == nil {
+				return cached, nil
+			}
+		}
+	}
+
 	payload := map[string]interface{}{
 		"tenant_id": tenantID,
 		"start":     start.Format(time.RFC3339),
@@ -238,10 +258,20 @@ func (c *MiradorCoreClient) FetchServiceGraph(ctx context.Context, tenantID stri
 			ErrorRate: edge.ErrorRate,
 		})
 	}
+
+	if c.serviceGraphTTL > 0 && cacheKey != "" {
+		if payload, err := json.Marshal(edges); err == nil {
+			_ = c.cache.Set(ctx, cacheKey, payload, c.serviceGraphTTL)
+		}
+	}
 	if len(edges) == 0 {
 		return nil, fmt.Errorf("mirador-core service graph returned no edges")
 	}
 	return edges, nil
+}
+
+func serviceGraphCacheKey(tenantID string, start, end time.Time) string {
+	return fmt.Sprintf("servicegraph:%s:%d:%d", tenantID, start.Unix(), end.Unix())
 }
 
 func (c *MiradorCoreClient) metricsURL() string      { return c.resolvePath(c.metricsPath) }

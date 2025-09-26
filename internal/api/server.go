@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -29,9 +30,16 @@ func NewServer(cfg config.ServerConfig, service rcav1.RCAEngineServer, opts ...g
 		return nil, fmt.Errorf("listen on %s: %w", cfg.Address, err)
 	}
 
-	grpcServer := grpc.NewServer(opts...)
+	grpc_prometheus.EnableHandlingTimeHistogram()
+	serverOpts := []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
+		grpc.ChainStreamInterceptor(grpc_prometheus.StreamServerInterceptor),
+	}
+	serverOpts = append(serverOpts, opts...)
+	grpcServer := grpc.NewServer(serverOpts...)
 
 	rcav1.RegisterRCAEngineServer(grpcServer, service)
+	grpc_prometheus.Register(grpcServer)
 
 	// Register health service so probes can hit /health via gRPC reflection tools.
 	healthSrv := health.NewServer()

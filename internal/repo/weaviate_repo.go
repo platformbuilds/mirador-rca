@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/miradorstack/mirador-rca/internal/cache"
 	"github.com/miradorstack/mirador-rca/internal/models"
 )
 
@@ -19,14 +21,32 @@ type WeaviateRepo struct {
 	endpoint   string
 	apiKey     string
 	httpClient *http.Client
+	cache      cache.Provider
+	similarTTL time.Duration
+	patternTTL time.Duration
 }
 
 // NewWeaviateRepo constructs a Weaviate client.
-func NewWeaviateRepo(endpoint, apiKey string, timeout time.Duration) *WeaviateRepo {
+func NewWeaviateRepo(endpoint, apiKey string, timeout time.Duration, cacheProvider cache.Provider, similarTTL, patternTTL time.Duration) *WeaviateRepo {
+	if cacheProvider == nil {
+		cacheProvider = cache.NoopProvider{}
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	if similarTTL < 0 {
+		similarTTL = 0
+	}
+ 	if patternTTL < 0 {
+ 		patternTTL = 0
+ 	}
 	return &WeaviateRepo{
 		endpoint:   strings.TrimRight(endpoint, "/"),
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: timeout},
+		cache:      cacheProvider,
+		similarTTL: similarTTL,
+		patternTTL: patternTTL,
 	}
 }
 
@@ -180,6 +200,19 @@ func (r *WeaviateRepo) SimilarIncidents(ctx context.Context, tenantID string, sy
 		return syntheticSimilarIncidents(symptoms, limit), nil
 	}
 
+	cacheKey := ""
+	if r.similarTTL > 0 {
+		sorted := append([]string(nil), symptoms...)
+		sort.Strings(sorted)
+		cacheKey = cacheSimilarIncidentsKey(tenantID, sorted, limit)
+		if data, err := r.cache.Get(ctx, cacheKey); err == nil {
+			var cached []models.CorrelationResult
+			if err := json.Unmarshal(data, &cached); err == nil {
+				return cached, nil
+			}
+		}
+	}
+
 	gql := map[string]interface{}{
 		"query": fmt.Sprintf(`{
           Get {
@@ -260,7 +293,18 @@ func (r *WeaviateRepo) SimilarIncidents(ctx context.Context, tenantID string, sy
 		})
 	}
 
+	if r.similarTTL > 0 && cacheKey != "" && len(results) > 0 {
+		if payload, err := json.Marshal(results); err == nil {
+			_ = r.cache.Set(ctx, cacheKey, payload, r.similarTTL)
+		}
+	}
+
 	return results, nil
+}
+
+func cacheSimilarIncidentsKey(tenantID string, symptoms []string, limit int) string {
+	joined := strings.Join(symptoms, "|")
+	return fmt.Sprintf("weaviate:similar:%s:%d:%s", tenantID, limit, joined)
 }
 
 // ListCorrelations returns historical correlations filtered by tenant/service/time.
@@ -444,6 +488,17 @@ func (r *WeaviateRepo) FetchPatterns(ctx context.Context, tenantID, service stri
 		return syntheticPatterns(service), nil
 	}
 
+	cacheKey := ""
+	if r.patternTTL > 0 {
+		cacheKey = cachePatternsKey(tenantID, service)
+		if data, err := r.cache.Get(ctx, cacheKey); err == nil {
+			var cached []models.FailurePattern
+			if err := json.Unmarshal(data, &cached); err == nil {
+				return cached, nil
+			}
+		}
+	}
+
 	gql := map[string]interface{}{
 		"query": fmt.Sprintf(`{
           Get {
@@ -557,7 +612,17 @@ func (r *WeaviateRepo) FetchPatterns(ctx context.Context, tenantID, service stri
 		})
 	}
 
+	if r.patternTTL > 0 && cacheKey != "" && len(patterns) > 0 {
+		if payload, err := json.Marshal(patterns); err == nil {
+			_ = r.cache.Set(ctx, cacheKey, payload, r.patternTTL)
+		}
+	}
+
 	return patterns, nil
+}
+
+func cachePatternsKey(tenantID, service string) string {
+	return fmt.Sprintf("weaviate:patterns:%s:%s", tenantID, service)
 }
 
 func optionalServiceOperand(service string) string {

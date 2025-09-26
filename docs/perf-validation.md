@@ -8,4 +8,4 @@ The RCA service tracks investigation latency internally using `LatencyTracker`. 
 4. If p95 exceeds `4s`, adjust detector thresholds or sampling windows in `internal/extractors` and retest.
 5. Record the observed p95 in the release checklist.
 
-For offline profiling you can run `make phase1-verify` (synthetic tests) or `make phase2-verify` (history/pattern suites).
+For offline profiling you can run `make verify` (fmt-check + lint + vet + unit tests) followed by targeted benchmarks inside `internal/engine` if deeper profiling is required.

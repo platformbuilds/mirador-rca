@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -17,11 +19,13 @@ type Config struct {
 	Weaviate WeaviateConfig `yaml:"weaviate"`
 	Logging  LoggingConfig  `yaml:"logging"`
 	Rules    RulesConfig    `yaml:"rules"`
+	Cache    CacheConfig    `yaml:"cache"`
 }
 
 // ServerConfig controls gRPC listener behaviour.
 type ServerConfig struct {
 	Address         string        `yaml:"address"`
+	MetricsAddress  string        `yaml:"metricsAddress"`
 	GracefulTimeout time.Duration `yaml:"gracefulTimeout"`
 }
 
@@ -58,6 +62,23 @@ type RulesConfig struct {
 	Path string `yaml:"path"`
 }
 
+// CacheConfig controls Valkey-backed caching of expensive lookups.
+type CacheConfig struct {
+	Enabled             bool          `yaml:"enabled"`
+	Addr                string        `yaml:"addr"`
+	Username            string        `yaml:"username"`
+	Password            string        `yaml:"password"`
+	DB                  int           `yaml:"db"`
+	DialTimeout         time.Duration `yaml:"dialTimeout"`
+	ReadTimeout         time.Duration `yaml:"readTimeout"`
+	WriteTimeout        time.Duration `yaml:"writeTimeout"`
+	MaxRetries          int           `yaml:"maxRetries"`
+	TLS                 bool          `yaml:"tls"`
+	SimilarIncidentsTTL time.Duration `yaml:"similarIncidentsTTL"`
+	ServiceGraphTTL     time.Duration `yaml:"serviceGraphTTL"`
+	PatternsTTL         time.Duration `yaml:"patternsTTL"`
+}
+
 // Load initialises Config from a YAML file and optional environment overrides.
 func Load(path string) (*Config, error) {
 	if path == "" {
@@ -87,6 +108,7 @@ func defaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
 			Address:         ":50051",
+			MetricsAddress:  ":2112",
 			GracefulTimeout: 10 * time.Second,
 		},
 		Clients: ClientsConfig{
@@ -101,12 +123,25 @@ func defaultConfig() Config {
 		Weaviate: WeaviateConfig{Timeout: 5 * time.Second},
 		Logging:  LoggingConfig{Level: "info", JSON: false},
 		Rules:    RulesConfig{Path: "configs/rules/default.yaml"},
+		Cache: CacheConfig{
+			Enabled:             false,
+			SimilarIncidentsTTL: 2 * time.Minute,
+			ServiceGraphTTL:     5 * time.Minute,
+			PatternsTTL:         10 * time.Minute,
+			DialTimeout:         2 * time.Second,
+			ReadTimeout:         500 * time.Millisecond,
+			WriteTimeout:        500 * time.Millisecond,
+			MaxRetries:          2,
+		},
 	}
 }
 
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("MIRADOR_RCA_SERVER_ADDRESS"); v != "" {
 		cfg.Server.Address = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_METRICS_ADDRESS"); v != "" {
+		cfg.Server.MetricsAddress = v
 	}
 	if v := os.Getenv("MIRADOR_CORE_BASE_URL"); v != "" {
 		cfg.Clients.Core.BaseURL = v
@@ -137,5 +172,60 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("MIRADOR_RCA_RULES_PATH"); v != "" {
 		cfg.Rules.Path = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_ADDR"); v != "" {
+		cfg.Cache.Addr = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_ENABLED"); v != "" {
+		cfg.Cache.Enabled = strings.EqualFold(v, "true") || strings.EqualFold(v, "1")
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_USERNAME"); v != "" {
+		cfg.Cache.Username = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_PASSWORD"); v != "" {
+		cfg.Cache.Password = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_DB"); v != "" {
+		if db, err := strconv.Atoi(v); err == nil {
+			cfg.Cache.DB = db
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_TLS"); strings.EqualFold(v, "true") || strings.EqualFold(v, "1") {
+		cfg.Cache.TLS = true
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_DIAL_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.DialTimeout = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_READ_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.ReadTimeout = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_WRITE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.WriteTimeout = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_MAX_RETRIES"); v != "" {
+		if retry, err := strconv.Atoi(v); err == nil {
+			cfg.Cache.MaxRetries = retry
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_SIMILAR_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.SimilarIncidentsTTL = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_SERVICE_GRAPH_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.ServiceGraphTTL = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_CACHE_PATTERNS_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Cache.PatternsTTL = d
+		}
 	}
 }

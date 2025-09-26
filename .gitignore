@@ -16,6 +16,13 @@
 coverage.*
 *.coverprofile
 profile.cov
+coverage.out
+
+# Build artifacts
+bin/
+dist/
+.gocache/
+.gotmp/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

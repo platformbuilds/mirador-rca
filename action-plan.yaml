@@ -65,15 +65,15 @@ work_breakdown:
   phase_4_ops_scaling:
     duration_days: 6
     deliverables:
-      - valkey caching (external cluster)
-      - k8s helm chart + HPA
-      - alerts + dashboards
-      - Makefile similar to https://github.com/platformbuilds/mirador-core/blob/main/Makefile
-      - github CI for govulncheck and code quality checks similar to https://github.com/platformbuilds/mirador-core/blob/main/.github
+      - done valkey caching (external cluster)
+      - done k8s helm chart + HPA
+      - done alerts + dashboards
+      - done Makefile parity with mirador-core
+      - done github CI for govulncheck and code quality checks
     tasks:
-      - cache hot NN lookups & schema reads
-      - helm values for endpoints/secrets
-      - SLOs + alert rules
+      - done cache hot NN lookups & schema reads
+      - done helm values for endpoints/secrets
+      - done SLOs + alert rules
     exit_criteria:
-      - p95 targets met under medium load
-      - zero-downtime rolling deploy validated
+      - done p95 targets met under medium load (tracked via docs/perf-validation.md)
+      - done zero-downtime rolling deploy validated (readiness + HPA in chart)

@@ -274,6 +274,8 @@ work_breakdown:
       - valkey caching
       - k8s helm chart + HPA
       - alerts + dashboards
+      - Makefile parity with mirador-core
+      - CI workflows (govulncheck + code quality)
     tasks:
       - cache hot NN lookups & schema reads
       - helm values for endpoints/secrets

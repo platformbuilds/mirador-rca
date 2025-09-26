@@ -14,13 +14,74 @@
 
 ## Quickstart
 ```
-make phase2-verify   # run unit suites
-make smoke-weaviate  # verify external Weaviate readiness
+make fmt            # gofmt + goimports all sources
+make verify         # fmt-check + lint + vet + test
+make govulncheck    # vulnerability scan (requires govulncheck)
+make build          # produces bin/mirador-rca
+make image          # docker build tagged with git describe
+make image-offline  # docker build with network access disabled
 ```
 
-Run the service:
+`make ci` runs the full verification plus `govulncheck` locally.
+
+Run the service locally:
 ```
 go run ./cmd/rca-engine --config configs/config.yaml
 ```
 
+Build & publish a container image:
+```
+make docker-build IMAGE=ghcr.io/your-org/mirador-rca:$(git rev-parse --short HEAD)
+make docker-push  IMAGE=ghcr.io/your-org/mirador-rca:$(git rev-parse --short HEAD)
+```
+
 Configuration fields are documented in `configs/config.example.yaml`.
+
+## Valkey caching
+
+Phase 4 adds read-through caching for Weaviate nearest-neighbour lookups and mirador-core service graph fetches. Configure the cache block in your config file (or via the `MIRADOR_RCA_CACHE_*` env vars) to point at a Valkey/Redis endpoint. Example:
+
+```yaml
+cache:
+  addr: "valkey.mirador.svc.cluster.local:6379"
+  username: ""
+  db: 0
+  tls: false
+  similarIncidentsTTL: 2m
+  serviceGraphTTL: 5m
+```
+
+If `addr` is blank the cache is disabled and requests fall back to direct Weaviate / mirador-core calls.
+
+## Metrics & Alerts
+
+mirador-rca exposes Prometheus metrics on the HTTP endpoint configured via `server.metricsAddress` (defaults to `:2112`). The binary registers both the gRPC default metrics (`grpc_server_handled_total`, handling histograms) and custom RCA series:
+
+- `mirador_rca_investigations_total{outcome="success|error"}`
+- `mirador_rca_investigation_seconds`
+
+Disable the endpoint by setting `server.metricsAddress: ""` (or `.Values.metrics.enabled=false` in the Helm chart). Refer to `docs/ops-observability.md` for the SLO catalogue, alert rules, and Grafana dashboard guidance.
+
+## Helm deployment
+
+A production-ready Helm chart lives under `charts/mirador-rca`. It ships with:
+
+- Deployment + Service definitions with configurable probes and resources
+- HorizontalPodAutoscaler targeting CPU and memory utilisation
+- ConfigMap-driven application configuration
+- Optional PrometheusRule alerts for investigation latency and traffic gaps
+- A Grafana dashboard ConfigMap that visualises p95 latency and request volume
+
+Render or install the chart locally:
+
+```
+helm lint charts/mirador-rca
+helm install mirador-rca charts/mirador-rca \
+  --set config.weaviate.endpoint=https://weaviate.example.com \
+  --set runtimeSecrets.weaviateAPIKey.name=weaviate-credentials \
+  --set runtimeSecrets.weaviateAPIKey.key=apiKey
+```
+
+## CI
+
+GitHub Actions workflows in `.github/workflows` enforce linters, vet/test runs, Helm linting, and a scheduled `govulncheck` scan on pushes and pull requests to `main`.

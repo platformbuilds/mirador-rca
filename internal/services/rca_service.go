@@ -12,6 +12,7 @@ import (
 	"github.com/miradorstack/mirador-rca/internal/api"
 	"github.com/miradorstack/mirador-rca/internal/engine"
 	rcav1 "github.com/miradorstack/mirador-rca/internal/grpc/generated"
+	"github.com/miradorstack/mirador-rca/internal/metrics"
 	"github.com/miradorstack/mirador-rca/internal/models"
 	"github.com/miradorstack/mirador-rca/internal/repo"
 	"github.com/miradorstack/mirador-rca/internal/utils"
@@ -67,11 +68,14 @@ func (s *RCAService) InvestigateIncident(ctx context.Context, req *rcav1.RCAInve
 
 	start := time.Now()
 	result, err := s.pipeline.Investigate(ctx, domainReq)
+	duration := time.Since(start)
 	if err != nil {
+		metrics.ObserveInvestigation(duration, metrics.OutcomeError)
 		s.logger.Error("pipeline investigation failed", slog.Any("error", err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("investigation failed: %v", err))
 	}
-	s.latencies.Observe(time.Since(start))
+	s.latencies.Observe(duration)
+	metrics.ObserveInvestigation(duration, metrics.OutcomeSuccess)
 	if count := s.latencies.Count(); count >= 20 && count%20 == 0 {
 		p95 := s.latencies.Percentile(95)
 		s.logger.Info("investigation latency", slog.Duration("p95", p95), slog.Int("samples", count))
